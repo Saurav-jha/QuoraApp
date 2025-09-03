@@ -8,8 +8,11 @@ import org.springframework.stereotype.Service;
 
 import com.example.QuoraApp.dto.QuestionRequestDTO;
 import com.example.QuoraApp.dto.QuestionResponseDto;
+import com.example.QuoraApp.enums.TargetType;
+import com.example.QuoraApp.events.ViewCountEvent;
 import com.example.QuoraApp.mapper.QuestionMapper;
 import com.example.QuoraApp.models.Question;
+import com.example.QuoraApp.producers.KafkaEventProducer;
 import com.example.QuoraApp.repositories.IQuestionRepository;
 import com.example.QuoraApp.utils.CursorUtils;
 
@@ -22,6 +25,8 @@ import reactor.core.publisher.Mono;
 public class QuestionService implements IQuestionService{
 
     private final IQuestionRepository questionRepository;
+
+    private final KafkaEventProducer kafkaEventProducer;
 
     @Override
     public Mono<QuestionResponseDto> createQuestion(QuestionRequestDTO questionRequestDTO) {
@@ -76,7 +81,14 @@ public class QuestionService implements IQuestionService{
 
     @Override
     public Mono<QuestionResponseDto> getQuestionById(String id) {
-        throw new UnsupportedOperationException("Unimplemented method 'getQuestionById'");
+        return questionRepository.findById(id)
+        .map(QuestionMapper::toQuestionResponseDto)
+        .doOnError(error -> System.out.println("Error fetching question by id: " + error))
+        .doOnSuccess(response -> {
+            System.out.println("Question by id fetched successfully: " + response);
+            ViewCountEvent viewCountEvent = new ViewCountEvent(id, TargetType.QUESTION, LocalDateTime.now());
+            kafkaEventProducer.publishViewCountEvent(viewCountEvent);
+        });
     }
     
 }
